@@ -1,5 +1,6 @@
+<p align="left">
 主要实现Zookeeper代码的插装，便于采集Trace运行态日志。<br/>
-插桩文件列表如下:<br/>
+1.插桩文件列表如下:<br/>
 LearnerHandler<br/>
 FinalRequestProcessor<br/>
 PrepRequestProcessor<br/>
@@ -13,7 +14,11 @@ Learner<br/>
 QuorumCnxManager<br/>
 SendAckRequestProcessor<br/>
 QuorumMaj<br/>
-
+  
+2.编译命令 mvn clean package -DskipTests=true<br/>
+  
+3.请使用linux版本  <br/>
+</p>
 
 
 <p align="left">
