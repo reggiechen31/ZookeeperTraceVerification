@@ -50,7 +50,7 @@ public class LeaderRequestProcessor implements RequestProcessor {
         if (!lzks.authWriteRequest(request)) {
             return;
         }
-
+        LOG.debug("10222803 Leader Request process,request={}",request.toString());
         // Check if this is a local session and we are trying to create
         // an ephemeral node, in which case we upgrade the session
         Request upgradeRequest = null;
