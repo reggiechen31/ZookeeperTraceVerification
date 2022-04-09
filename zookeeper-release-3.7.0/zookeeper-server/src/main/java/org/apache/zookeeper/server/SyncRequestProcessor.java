@@ -21,6 +21,7 @@ package org.apache.zookeeper.server;
 import java.io.Flushable;
 import java.io.IOException;
 import java.util.ArrayDeque;
+import java.util.Collection;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
@@ -29,6 +30,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import org.apache.zookeeper.common.Time;
+import org.apache.zookeeper.server.quorum.Leader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -164,6 +166,7 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements Req
 
                 long pollTime = Math.min(zks.getMaxWriteQueuePollTime(), getRemainingDelay());
                 Request si = queuedRequests.poll(pollTime, TimeUnit.MILLISECONDS);
+
                 if (si == null) {
                     /* We timed out looking for more writes to batch, go ahead and flush immediately */
                     flush();
@@ -173,11 +176,12 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements Req
                 if (si == REQUEST_OF_DEATH) {
                     break;
                 }
-
                 long startProcessTime = Time.currentElapsedTime();
                 ServerMetrics.getMetrics().SYNC_PROCESSOR_QUEUE_TIME.add(startProcessTime - si.syncQueueStartTime);
 
                 // track the number of records written to the log
+                //  // zks.getZKDatabase().append(si) 把请求append 到快照对象中
+
                 if (!si.isThrottled() && zks.getZKDatabase().append(si)) {
                     if (shouldSnapshot()) {
                         resetSnapshotStats();
@@ -190,7 +194,9 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements Req
                             new ZooKeeperThread("Snapshot Thread") {
                                 public void run() {
                                     try {
+                                        // // 这里将数据序列化到zk底层的DataTree对象中
                                         zks.takeSnapshot();
+
                                     } catch (Exception e) {
                                         LOG.warn("Unexpected exception", e);
                                     } finally {
@@ -204,6 +210,7 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements Req
                     // optimization for read heavy workloads
                     // iff this is a read or a throttled request(which doesn't need to be written to the disk),
                     // and there are no pending flushes (writes), then just pass this to the next processor
+
                     if (nextProcessor != null) {
                         nextProcessor.processRequest(si);
                         if (nextProcessor instanceof Flushable) {
@@ -213,6 +220,7 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements Req
                     continue;
                 }
                 toFlush.add(si);
+
                 if (shouldFlush()) {
                     flush();
                 }
@@ -225,6 +233,7 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements Req
     }
 
     private void flush() throws IOException, RequestProcessorException {
+
         if (this.toFlush.isEmpty()) {
             return;
         }
@@ -232,7 +241,10 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements Req
         ServerMetrics.getMetrics().BATCH_SIZE.add(toFlush.size());
 
         long flushStartTime = Time.currentElapsedTime();
+        //// 提交写快照文件
         zks.getZKDatabase().commit();
+
+
         ServerMetrics.getMetrics().SYNC_PROCESSOR_FLUSH_TIME.add(Time.currentElapsedTime() - flushStartTime);
 
         if (this.nextProcessor == null) {
@@ -242,6 +254,7 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements Req
                 final Request i = this.toFlush.remove();
                 long latency = Time.currentElapsedTime() - i.syncQueueStartTime;
                 ServerMetrics.getMetrics().SYNC_PROCESSOR_QUEUE_AND_FLUSH_TIME.add(latency);
+                //AckRequestProcessor 判断是否半数以上节点返回ACK确认消息，如果超过半数，则提交数据写入内存
                 this.nextProcessor.processRequest(i);
             }
             if (this.nextProcessor instanceof Flushable) {
@@ -274,7 +287,9 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements Req
         Objects.requireNonNull(request, "Request cannot be null");
 
         request.syncQueueStartTime = Time.currentElapsedTime();
+        LOG.debug("10222803 received request from leader,request={}",request.toString());
         queuedRequests.add(request);
+
         ServerMetrics.getMetrics().SYNC_PROCESSOR_QUEUED.add(1);
     }
 
