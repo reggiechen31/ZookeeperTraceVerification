@@ -42,6 +42,8 @@ public class SendAckRequestProcessor implements RequestProcessor, Flushable {
             QuorumPacket qp = new QuorumPacket(Leader.ACK, si.getHdr().getZxid(), null, null);
             try {
                 si.logLatency(ServerMetrics.getMetrics().PROPOSAL_ACK_CREATION_LATENCY);
+                LOG.debug("10222803 follower send ACK to leader,QuorumPacket={}",qp.toString());
+
 
                 learner.writePacket(qp, false);
             } catch (IOException e) {
