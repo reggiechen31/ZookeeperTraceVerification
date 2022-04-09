@@ -25,12 +25,7 @@ import java.io.DataInputStream;
 import java.io.IOException;
 import java.net.Socket;
 import java.nio.ByteBuffer;
-import java.util.Date;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Queue;
+import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -511,13 +506,18 @@ public class LearnerHandler extends ZooKeeperThread {
             }
 
             learnerMaster.registerLearnerHandlerBean(this, sock);
-
+            /**
+             * 通过 follower 发送的 zxid，解析出 foloower 节点的 epoch 值
+             */
             long lastAcceptedEpoch = ZxidUtils.getEpochFromZxid(qp.getZxid());
+            LOG.debug("10222803 leader recived follower epoch:{}",Long.toHexString(lastAcceptedEpoch));
 
             long peerLastZxid;
             StateSummary ss = null;
             long zxid = qp.getZxid();
             long newEpoch = learnerMaster.getEpochToPropose(this.getSid(), lastAcceptedEpoch);
+            LOG.debug("10222803 leader calculate follower newEpoch:{}",Long.toHexString(newEpoch));
+
             long newLeaderZxid = ZxidUtils.makeZxid(newEpoch, 0);
 
             if (this.getVersion() < 0x10000) {
@@ -530,6 +530,10 @@ public class LearnerHandler extends ZooKeeperThread {
                 byte[] ver = new byte[4];
                 ByteBuffer.wrap(ver).putInt(0x10000);
                 QuorumPacket newEpochPacket = new QuorumPacket(Leader.LEADERINFO, newLeaderZxid, ver, null);
+                /**
+                 * 计算出新的 epoch 值后，leader 向 follower 发送 LEADERINFO 信息；包括新的 newEpoch
+                 */
+                LOG.debug("10222803 leader send follower newEpoch:{}",Long.toHexString(newLeaderZxid));
                 oa.writeRecord(newEpochPacket, "packet");
                 messageTracker.trackSent(Leader.LEADERINFO);
                 bufferedOutput.flush();
@@ -544,6 +548,10 @@ public class LearnerHandler extends ZooKeeperThread {
                 ss = new StateSummary(bbepoch.getInt(), ackEpochPacket.getZxid());
                 learnerMaster.waitForEpochAck(this.getSid(), ss);
             }
+            // peerLastZxid 为 follower 的 last zxid
+            /**
+             * 开启数据同步过程
+             */
             peerLastZxid = ss.getLastZxid();
 
             // Take any necessary action if we need to send TRUNC or DIFF
@@ -578,6 +586,9 @@ public class LearnerHandler extends ZooKeeperThread {
                     learnerMaster.getZKDatabase().serializeSnapshot(oa);
                     oa.writeString("BenWasHere", "signature");
                     bufferedOutput.flush();
+
+
+
                 } finally {
                     ServerMetrics.getMetrics().SNAP_COUNT.add(1);
                 }
@@ -588,7 +599,9 @@ public class LearnerHandler extends ZooKeeperThread {
                 ServerMetrics.getMetrics().DIFF_COUNT.add(1);
             }
 
-            LOG.debug("Sending NEWLEADER message to {}", sid);
+
+
+            LOG.debug("10222803 Sending NEWLEADER message to {}", sid);
             // the version of this quorumVerifier will be set by leader.lead() in case
             // the leader is just being established. waitForEpochAck makes sure that readyToStart is true if
             // we got here, so the version was set
@@ -596,12 +609,16 @@ public class LearnerHandler extends ZooKeeperThread {
                 QuorumPacket newLeaderQP = new QuorumPacket(Leader.NEWLEADER, newLeaderZxid, null, null);
                 oa.writeRecord(newLeaderQP, "packet");
             } else {
+                // 数据同步完成之后会发送 NEWLEADER 信息
+
+
                 QuorumPacket newLeaderQP = new QuorumPacket(Leader.NEWLEADER, newLeaderZxid, learnerMaster.getQuorumVerifierBytes(), null);
                 queuedPackets.add(newLeaderQP);
             }
             bufferedOutput.flush();
 
             // Start thread that blast packets in the queue to learner
+            //将数据从 LearnerHandler.queuedPackets 队列取出，并发送到 follower 节点
             startSendingPackets();
 
             /*
@@ -644,11 +661,15 @@ public class LearnerHandler extends ZooKeeperThread {
             // so we need to mark when the peer can actually start
             // using the data
             //
+
+
             LOG.debug("Sending UPTODATE message to {}", sid);
             queuedPackets.add(new QuorumPacket(Leader.UPTODATE, -1, null, null));
 
+
             while (true) {
                 qp = new QuorumPacket();
+
                 ia.readRecord(qp, "packet");
                 messageTracker.trackReceived(qp.getType());
 
@@ -674,6 +695,9 @@ public class LearnerHandler extends ZooKeeperThread {
                         LOG.debug("Received ACK from Observer {}", this.sid);
                     }
                     syncLimitCheck.updateAck(qp.getZxid());
+                    //LOG.debug("10222803 leader received ACK from follower,type={},zxid={},data={}",qp.getType(),Long.toHexString(qp.getZxid()),qp.getData().toString());
+                    LOG.debug("10222803 leader received ACK from follower,qp={},zxid={}",qp.toString(),Long.toHexString(qp.getZxid()));
+                    // LOG.debug("10222803 leader received ACK from follower,sid={},zxid={},address={}",Long.toHexString(this.sid),Long.toHexString(qp.getZxid()),sock.getLocalAddress().toString());
                     learnerMaster.processAck(this.sid, qp.getZxid(), sock.getLocalSocketAddress());
                     break;
                 case Leader.PING:
@@ -740,6 +764,7 @@ public class LearnerHandler extends ZooKeeperThread {
     protected void startSendingPackets() {
         if (!sendingThreadStarted) {
             // Start sending packets
+            // 发送请求数据包到follower节点
             new Thread() {
                 public void run() {
                     Thread.currentThread().setName("Sender-" + sock.getRemoteSocketAddress());
@@ -795,6 +820,7 @@ public class LearnerHandler extends ZooKeeperThread {
         try {
             rl.lock();
             long maxCommittedLog = db.getmaxCommittedLog();
+
             long minCommittedLog = db.getminCommittedLog();
             long lastProcessedZxid = db.getDataTreeLastProcessedZxid();
 
@@ -916,8 +942,14 @@ public class LearnerHandler extends ZooKeeperThread {
                 currentZxid = db.getDataTreeLastProcessedZxid();
             }
 
-            LOG.debug("Start forwarding 0x{} for peer sid: {}", Long.toHexString(currentZxid), getSid());
+
+            LOG.debug("10222803 leader sync data,zxid={},data={}",Long.toHexString(currentZxid));
+
+
+
+            LOG.debug("10222803 leader Sync Start forwarding 0x{} for peer sid: {}", Long.toHexString(currentZxid), getSid());
             leaderLastZxid = learnerMaster.startForwarding(this, currentZxid);
+
         } finally {
             rl.unlock();
         }
@@ -1087,7 +1119,9 @@ public class LearnerHandler extends ZooKeeperThread {
     }
 
     void queuePacket(QuorumPacket p) {
+
         queuedPackets.add(p);
+
         // Add a MarkerQuorumPacket at regular intervals.
         if (shouldSendMarkerPacketForLogging() && packetCounter.getAndIncrement() % markerPacketInterval == 0) {
             queuedPackets.add(new MarkerQuorumPacket(System.nanoTime()));
