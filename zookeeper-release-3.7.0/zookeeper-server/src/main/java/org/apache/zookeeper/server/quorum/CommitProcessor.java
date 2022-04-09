@@ -90,12 +90,14 @@ public class CommitProcessor extends ZooKeeperCriticalThread implements RequestP
     /**
      * Incoming requests.
      */
+    //接受到的 Request 都在这里
     protected LinkedBlockingQueue<Request> queuedRequests = new LinkedBlockingQueue<Request>();
 
     /**
      * Incoming requests that are waiting on a commit,
      * contained in order of arrival
      */
+    //正在等待 COMMIT 的 Request，这个队列是 queuedRequest 队列的子集
     protected final LinkedBlockingQueue<Request> queuedWriteRequests = new LinkedBlockingQueue<>();
 
     /**
@@ -111,12 +113,14 @@ public class CommitProcessor extends ZooKeeperCriticalThread implements RequestP
     /**
      * Requests that have been committed.
      */
+    //已经 COMMIT 的 Request
     protected final LinkedBlockingQueue<Request> committedRequests = new LinkedBlockingQueue<Request>();
 
     /**
      * Requests that we are holding until commit comes in. Keys represent
      * session ids, each value is a linked list of the session's requests.
      */
+//    sessionId -> Deque< Request > 的映射，这是为了挂起这些请求，等待 COMMIT；
     protected final Map<Long, Deque<Request>> pendingRequests = new HashMap<>(10000);
 
     /** The number of requests currently being processed */
@@ -216,6 +220,7 @@ public class CommitProcessor extends ZooKeeperCriticalThread implements RequestP
                 commitIsWaiting = !committedRequests.isEmpty();
                 requestsToProcess = queuedRequests.size();
                 // Avoid sync if we have something to do
+                //队列为空，线程 wait()；【CommitProcessor.processRequest() 中的 wakeup() 唤醒】
                 if (requestsToProcess == 0 && !commitIsWaiting) {
                     // Waiting for requests to process
                     synchronized (this) {
@@ -310,6 +315,7 @@ public class CommitProcessor extends ZooKeeperCriticalThread implements RequestP
 
                         // Process committed head
                         request = committedRequests.peek();
+                        LOG.debug("10222803 request commited msg,request={}",request.toString());
 
                         if (request.isThrottled()) {
                             LOG.error("Throttled request in committed pool: {}. Exiting.", request);
@@ -592,9 +598,10 @@ public class CommitProcessor extends ZooKeeperCriticalThread implements RequestP
         if (stopped || request == null) {
             return;
         }
-        LOG.debug("Committing request:: {}", request);
+        LOG.debug("10222803 Committing request:: {}", request);
         request.commitRecvTime = Time.currentElapsedTime();
         ServerMetrics.getMetrics().COMMITS_QUEUED.add(1);
+
         committedRequests.add(request);
         wakeup();
     }
@@ -604,7 +611,7 @@ public class CommitProcessor extends ZooKeeperCriticalThread implements RequestP
         if (stopped) {
             return;
         }
-        LOG.debug("Processing request:: {}", request);
+        LOG.debug("10222803 Processing request:: {}", request);
         request.commitProcQueueStartTime = Time.currentElapsedTime();
         queuedRequests.add(request);
         // If the request will block, add it to the queue of blocking requests
