@@ -65,7 +65,6 @@ public class FollowerRequestProcessor extends ZooKeeperCriticalThread implements
         try {
             while (!finished) {
                 ServerMetrics.getMetrics().LEARNER_REQUEST_PROCESSOR_QUEUE_SIZE.add(queuedRequests.size());
-
                 Request request = queuedRequests.take();
                 if (LOG.isTraceEnabled()) {
                     ZooTrace.logRequest(LOG, ZooTrace.CLIENT_REQUEST_TRACE_MASK, 'F', request, "");
@@ -109,7 +108,9 @@ public class FollowerRequestProcessor extends ZooKeeperCriticalThread implements
                 case OpCode.setACL:
                 case OpCode.multi:
                 case OpCode.check:
-                    zks.getFollower().request(request);
+                    zks.getFollower().request(request);//10222803 以上枚举的请求都会被转发到服务器中
+                    LOG.debug("10222803 follower forword request to leader,request={},zxid={},sessionId={}",request.toString(),Long.toHexString(request.zxid),Long.toHexString(request.sessionId));
+
                     break;
                 case OpCode.createSession:
                 case OpCode.closeSession:
