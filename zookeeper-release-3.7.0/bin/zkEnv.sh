@@ -32,11 +32,11 @@ ZOOKEEPER_PREFIX="${ZOOBINDIR}/.."
 if [ $# -gt 1 ]
 then
     if [ "--config" = "$1" ]
-	  then
-	      shift
-	      confdir=$1
-	      shift
-	      ZOOCFGDIR=$confdir
+          then
+              shift
+              confdir=$1
+              shift
+              ZOOCFGDIR=$confdir
     fi
 fi
 
@@ -72,7 +72,7 @@ fi
 
 if [ "x${ZOO_LOG4J_PROP}" = "x" ]
 then
-    ZOO_LOG4J_PROP="INFO,CONSOLE"
+    ZOO_LOG4J_PROP="DEBUG,ROLLINGFILE"
 fi
 
 if [[ -n "$JAVA_HOME" ]] && [[ -x "$JAVA_HOME/bin/java" ]];  then
