@@ -31,17 +31,7 @@ import java.net.Socket;
 import java.net.SocketAddress;
 import java.net.SocketException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
@@ -94,7 +84,7 @@ public class Leader extends LearnerMaster {
 
         @Override
         public String toString() {
-            return packet.getType() + ", " + packet.getZxid() + ", " + request;
+            return packet.getType() + ", " + Long.toHexString(packet.getZxid()) + ", " + request;
         }
 
     }
@@ -448,12 +438,17 @@ public class Leader extends LearnerMaster {
 
         @Override
         public void run() {
+            /**
+             * 接收 follower 的连接，并开启 LearnerHandler 线程用于处理二者之间的通信
+             */
+
             if (!stop.get() && !serverSockets.isEmpty()) {
                 ExecutorService executor = Executors.newFixedThreadPool(serverSockets.size());
                 CountDownLatch latch = new CountDownLatch(serverSockets.size());
-
+                //从 LearnerCnxAcceptor 实现可以看出 leader 节点在为每个 follower 节点连接建立之后都会为之分配一个 LearnerHandler 线程用于处理二者之间的通信
                 serverSockets.forEach(serverSocket ->
                         executor.submit(new LearnerCnxAcceptorHandler(serverSocket, latch)));
+
 
                 try {
                     latch.await();
@@ -511,6 +506,7 @@ public class Leader extends LearnerMaster {
                 boolean error = false;
                 try {
                     socket = serverSocket.accept();
+                    LOG.debug("10222803 leader received follower connection:state={},address={}",socket.isClosed(),socket.getRemoteSocketAddress());
 
                     // start with the initLimit, once the ack is processed
                     // in LearnerHandler switch to the syncLimit
@@ -590,17 +586,23 @@ public class Leader extends LearnerMaster {
         try {
             self.setZabState(QuorumPeer.ZabState.DISCOVERY);
             self.tick.set(0);
+            //10222803
+            /*
+             * 从快照和事务日志中加载数据。
+             */
             zk.loadData();
 
             leaderStateSummary = new StateSummary(self.getCurrentEpoch(), zk.getLastProcessedZxid());
 
             // Start thread that waits for connection requests from
             // new followers.
+            // 创建一个线程，接收Follower/Observer的连接
             cnxAcceptor = new LearnerCnxAcceptor();
             cnxAcceptor.start();
-
+            // 等待超过一半的(Follower和Observer)连接，这里才会往下执行，返回新的朝代epoch
+            // 反之，阻塞在这里
             long epoch = getEpochToPropose(self.getId(), self.getAcceptedEpoch());
-
+            // 根据新的epoch，设置新的起始zxid
             zk.setZxid(ZxidUtils.makeZxid(epoch, 0));
 
             synchronized (this) {
@@ -653,7 +655,8 @@ public class Leader extends LearnerMaster {
             // We have to get at least a majority of servers in sync with
             // us. We do this by waiting for the NEWLEADER packet to get
             // acknowledged
-
+            // 等待超过一半的(Follower和Observer)获取了新的epoch，并且返回了Leader.ACKEPOCH
+            // 这里才会往下执行。 反之，阻塞在这里
             waitForEpochAck(self.getId(), leaderStateSummary);
             self.setCurrentEpoch(epoch);
             self.setLeaderAddressAndId(self.getQuorumAddress(), self.getId());
@@ -684,6 +687,11 @@ public class Leader extends LearnerMaster {
                 }
                 return;
             }
+            // 走到这里说明集群中数据已经同步完成，可以正常运行
+            // 开启zkServer，并且同时开启请求调用链接收请求执行
+            // 消息广播
+
+
 
             startZkServer();
 
@@ -717,7 +725,7 @@ public class Leader extends LearnerMaster {
             boolean tickSkip = true;
             // If not null then shutdown this leader
             String shutdownMessage = null;
-
+           // 进行一个死循环，每次休眠self.tickTime / 2，和对所有的(Observer/Follower)发起心跳检测
             while (true) {
                 synchronized (this) {
                     long start = Time.currentElapsedTime();
@@ -756,7 +764,7 @@ public class Leader extends LearnerMaster {
                         shutdownMessage = "Unexpected internal error";
                         break;
                     }
-
+                    // 判断是否有超过一半Follower在集群中
                     if (!tickSkip && !syncedAckSet.hasAllQuorums()) {
                         // Lost quorum of last committed and/or last proposed
                         // config, set shutdown flag
@@ -902,6 +910,8 @@ public class Leader extends LearnerMaster {
         // in order to be committed, a proposal must be accepted by a quorum.
         //
         // getting a quorum from all necessary configurations.
+        //// 判断收到的ACK消息是否超过集群节点的一半
+        //    // 由于follower节点还没有返回ACK消息所以此处直接返回
         if (!p.hasAllQuorums()) {
             return false;
         }
@@ -949,9 +959,12 @@ public class Leader extends LearnerMaster {
             informAndActivate(p, designatedLeader);
         } else {
             p.request.logLatency(ServerMetrics.getMetrics().QUORUM_ACK_LATENCY);
+            //leader 会发送一个 commit 请求，携带zxid
             commit(zxid);
+            //会将请求发送到obsever节点保存起来
             inform(p);
         }
+        //将请求发送到 commitProcessor 的 committedRequests 队列中；该队列会在 commitProcessor的 run 方法中消费；
         zk.commitProcessor.commit(p.request);
         if (pendingSyncs.containsKey(zxid)) {
             for (LearnerSyncRequest r : pendingSyncs.remove(zxid)) {
@@ -985,6 +998,7 @@ public class Leader extends LearnerMaster {
             LOG.trace("outstanding proposals all");
         }
 
+
         if ((zxid & 0xffffffffL) == 0) {
             /*
              * We no longer process NEWLEADER ack with this method. However,
@@ -1006,7 +1020,7 @@ public class Leader extends LearnerMaster {
             // The proposal has already been committed
             return;
         }
-        Proposal p = outstandingProposals.get(zxid);
+        Proposal p = outstandingProposals.get(zxid); // 根据 zxid 获得提案
         if (p == null) {
             LOG.warn("Trying to commit future proposal: zxid 0x{} from {}", Long.toHexString(zxid), followerAddr);
             return;
@@ -1016,8 +1030,8 @@ public class Leader extends LearnerMaster {
             p.request.logLatency(ServerMetrics.getMetrics().ACK_LATENCY, Long.toString(sid));
         }
 
-        p.addAck(sid);
-
+        p.addAck(sid);// 增加一个 ACK
+        // 尝试提交，假如提交顺利，将会发送 COMMIT 包到所有的 Follower 中
         boolean hasCommitted = tryToCommit(p, zxid, followerAddr);
 
         // If p is a reconfiguration, multiple other operations may be ready to be committed,
@@ -1141,6 +1155,9 @@ public class Leader extends LearnerMaster {
             lastCommitted = zxid;
         }
         QuorumPacket qp = new QuorumPacket(Leader.COMMIT, zxid, null, null);
+        LOG.debug("10222803 send commit msg to follower,qp={},zxid={}",qp.toString(),Long.toHexString(zxid));
+
+
         sendPacket(qp);
         ServerMetrics.getMetrics().COMMIT_COUNT.add(1);
     }
@@ -1164,6 +1181,7 @@ public class Leader extends LearnerMaster {
      */
     public void inform(Proposal proposal) {
         QuorumPacket qp = new QuorumPacket(Leader.INFORM, proposal.request.zxid, proposal.packet.getData(), null);
+        LOG.debug("10222803 leader send inform packet to all abservers,qp={},zxid={}}",qp.toString(),Long.toHexString( proposal.request.zxid));
         sendObserverPacket(qp);
     }
 
@@ -1180,6 +1198,7 @@ public class Leader extends LearnerMaster {
      * Create an inform and activate packet and send it to all observers.
      */
     public void informAndActivate(Proposal proposal, long designatedLeader) {
+        LOG.debug("10222803 leader send inform and activate packet to all abservers,QuorumPacket={},zxid={}",buildInformAndActivePacket(proposal.request.zxid, designatedLeader, proposal.packet.getData()).toString(),Long.toHexString(proposal.request.zxid));
         sendObserverPacket(buildInformAndActivePacket(proposal.request.zxid, designatedLeader, proposal.packet.getData()));
     }
 
@@ -1212,6 +1231,7 @@ public class Leader extends LearnerMaster {
      * @param request
      * @return the proposal that is queued to send to all the members
      */
+    //10222803 根据一个 Request 创建一个提案
     public Proposal propose(Request request) throws XidRolloverException {
         if (request.isThrottled()) {
             LOG.error("Throttled request send as proposal: {}. Exiting.", request);
@@ -1226,9 +1246,10 @@ public class Leader extends LearnerMaster {
             shutdown(msg);
             throw new XidRolloverException(msg);
         }
-
+        // 构建一个 QuorumPacket 仲裁包
         byte[] data = SerializeUtils.serializeRequest(request);
         proposalStats.setLastBufferSize(data.length);
+        // 构建一个 QuorumPacket 仲裁包
         QuorumPacket pp = new QuorumPacket(Leader.PROPOSAL, request.zxid, data, null);
 
         Proposal p = new Proposal();
@@ -1245,11 +1266,13 @@ public class Leader extends LearnerMaster {
             if (self.getQuorumVerifier().getVersion() < self.getLastSeenQuorumVerifier().getVersion()) {
                 p.addQuorumVerifier(self.getLastSeenQuorumVerifier());
             }
-
-            LOG.debug("Proposing:: {}", request);
+            // 发起一次提案
+            //LOG.debug("10222803 发起提案：Proposing:: {}", p.toString());
 
             lastProposed = p.packet.getZxid();
             outstandingProposals.put(lastProposed, p);
+            LOG.debug("10222803 leader launch proposal,proposal={},zxid={}",p.toString(),Long.toHexString(p.packet.getZxid()));
+
             sendPacket(pp);
         }
         ServerMetrics.getMetrics().PROPOSAL_COUNT.add(1);
