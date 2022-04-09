@@ -29,11 +29,8 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.ByteBuffer;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.Map;
+import java.util.*;
 import java.util.Map.Entry;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -42,6 +39,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.net.ssl.SSLSocket;
+
 import org.apache.jute.BinaryInputArchive;
 import org.apache.jute.BinaryOutputArchive;
 import org.apache.jute.InputArchive;
@@ -67,7 +65,6 @@ import org.apache.zookeeper.txn.TxnHeader;
 import org.apache.zookeeper.util.ServiceUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 /**
  * This class is the superclass of two of the three main actors in a ZK
  * ensemble: Followers and Observers. Both Followers and Observers share
@@ -259,8 +256,11 @@ public class Learner {
             request.request.rewind();
             oa.write(b);
         }
+        LOG.debug("10222803 send a request packet to leader:sessionId={},cxid={},type={}",Long.toHexString(request.sessionId),Long.toString(request.cxid),request.type +"");
         oa.close();
+        //构建仲裁包，zxid为-1
         QuorumPacket qp = new QuorumPacket(Leader.REQUEST, -1, baos.toByteArray(), request.authInfo);
+        LOG.debug("10222803 learner QuorumPacket={}",qp.toString());
         writePacket(qp, true);
     }
 
@@ -311,6 +311,7 @@ public class Learner {
      * if there is an authentication failure while connecting to leader
      */
     protected void connectToLeader(MultipleAddresses multiAddr, String hostname) throws IOException {
+
 
         this.leaderAddr = multiAddr;
         Set<InetSocketAddress> addresses;
@@ -375,6 +376,8 @@ public class Learner {
             try {
                 Thread.currentThread().setName("LeaderConnector-" + address);
                 Socket sock = connectToLeader();
+                LOG.debug("10222803 follower send leader connection:state={},address={}",sock.isClosed(),sock.getRemoteSocketAddress());
+
 
                 if (sock != null && sock.isConnected()) {
                     if (socket.compareAndSet(null, sock)) {
@@ -488,19 +491,29 @@ public class Learner {
         QuorumPacket qp = new QuorumPacket();
         qp.setType(pktType);
         qp.setZxid(ZxidUtils.makeZxid(self.getAcceptedEpoch(), 0));
+        LOG.debug("10222803 follower send epoch:{}",Long.toHexString(self.getAcceptedEpoch()));
 
         /*
          * Add sid to payload
          */
         LearnerInfo li = new LearnerInfo(self.getId(), 0x10000, self.getQuorumVerifier().getVersion());
+        LOG.debug("10222803 follower send sid to payload:{}",li.toString());
+
         ByteArrayOutputStream bsid = new ByteArrayOutputStream();
         BinaryOutputArchive boa = BinaryOutputArchive.getArchive(bsid);
         boa.writeRecord(li, "LearnerInfo");
         qp.setData(bsid.toByteArray());
 
+        /**
+         * follower 向 leader 发送 FOLLOWERINFO 信息，包括 zxid，sid，protocol version
+         */
         writePacket(qp, true);
+        /**
+         * follower 接收 leader 发送的 LEADERINFO 信息
+         */
         readPacket(qp);
         final long newEpoch = ZxidUtils.getEpochFromZxid(qp.getZxid());
+        LOG.debug("10222803 follower received leader newEpoch:{}",Long.toHexString(newEpoch));
         if (qp.getType() == Leader.LEADERINFO) {
             // we are connected to a 1.0 server so accept the new epoch and read the next packet
             leaderProtocolVersion = ByteBuffer.wrap(qp.getData()).getInt();
@@ -521,6 +534,10 @@ public class Learner {
                                       + " is less than accepted epoch, "
                                       + self.getAcceptedEpoch());
             }
+            /**
+             * follower 向 leader 发送 ACKEPOCH 信息，包括 last zxid
+             */
+            LOG.debug("10222803 followe send ack mesage to leader,followe last zxid :{}",Long.toHexString(lastLoggedZxid));
             QuorumPacket ackNewEpoch = new QuorumPacket(Leader.ACKEPOCH, lastLoggedZxid, epochBytes, null);
             writePacket(ackNewEpoch, true);
             return ZxidUtils.makeZxid(newEpoch, 0);
@@ -542,6 +559,11 @@ public class Learner {
      * @param newLeaderZxid
      * @throws IOException
      * @throws InterruptedException
+     */
+    /**
+     * follow data 同步
+     * @param newLeaderZxid
+     * @throws Exception
      */
     protected void syncWithLeader(long newLeaderZxid) throws Exception {
         QuorumPacket ack = new QuorumPacket(Leader.ACK, 0, null, null);
@@ -581,7 +603,7 @@ public class Learner {
                     LOG.debug("Reset config node content from local config after deserialization of snapshot.");
                     zk.getZKDatabase().initConfigInZKDatabase(self.getQuorumVerifier());
                 }
-                String signature = leaderIs.readString("signature");
+                java.lang.String signature = leaderIs.readString("signature");
                 if (!signature.equals("BenWasHere")) {
                     LOG.error("Missing signature. Got {}", signature);
                     throw new IOException("Missing signature");
@@ -606,8 +628,15 @@ public class Learner {
                 LOG.error("Got unexpected packet from leader: {}, exiting ... ", LearnerHandler.packetToString(qp));
                 ServiceUtils.requestSystemExit(ExitCode.QUORUM_PACKET_ERROR.getValue());
             }
+
+
+            LOG.debug("10222803 follower sync data,zxid={}",Long.toHexString(qp.getZxid()));
+
             zk.getZKDatabase().initConfigInZKDatabase(self.getQuorumVerifier());
             zk.createSessionTracker();
+
+
+
 
             long lastQueued = 0;
 
@@ -716,6 +745,7 @@ public class Learner {
                     break;
                 case Leader.UPTODATE:
                     LOG.info("Learner received UPTODATE message");
+
                     if (newLeaderQV != null) {
                         boolean majorChange = self.processReconfig(newLeaderQV, null, null, true);
                         if (majorChange) {
@@ -728,10 +758,15 @@ public class Learner {
                     }
                     self.setZooKeeperServer(zk);
                     self.adminServer.setZooKeeperServer(zk);
+
+                    LOG.debug("10222803 follower last zxid=0x{}",zk.getZKDatabase().getDataTreeLastProcessedZxid());
                     break outerLoop;
                 case Leader.NEWLEADER: // Getting NEWLEADER here instead of in discovery
                     // means this is Zab 1.0
                     LOG.info("Learner received NEWLEADER message");
+                    LOG.debug("10222803 Learner received NEWLEADER message");
+
+
                     if (qp.getData() != null && qp.getData().length > 1) {
                         try {
                             QuorumVerifier qv = self.configFromString(new String(qp.getData(), UTF_8));
@@ -745,6 +780,7 @@ public class Learner {
                     if (snapshotNeeded) {
                         zk.takeSnapshot(syncSnapshot);
                     }
+
 
                     self.setCurrentEpoch(newEpoch);
                     writeToTxnLog = true;
@@ -768,8 +804,13 @@ public class Learner {
                 }
             }
         }
+
+
         ack.setZxid(ZxidUtils.makeZxid(newEpoch, 0));
         writePacket(ack, true);
+
+
+
         zk.startServing();
         /*
          * Update the election vote here to ensure that all members of the
