@@ -464,9 +464,11 @@ public class QuorumCnxManager {
     }
 
     private boolean startConnection(Socket sock, Long sid) throws IOException {
+        LOG.debug("10222803 start connection");
         DataOutputStream dout = null;
         DataInputStream din = null;
         LOG.debug("startConnection (myId:{} --> sid:{})", self.getId(), sid);
+
         try {
             // Use BufferedOutputStream to reduce the number of IP packets. This is
             // important for x-DC scenarios.
@@ -516,6 +518,7 @@ public class QuorumCnxManager {
             // Otherwise proceed with the connection
         } else {
             LOG.debug("Have larger server identifier, so keeping the connection: (myId:{} --> sid:{})", self.getId(), sid);
+            LOG.debug("10222803:connection: (myId:{} --> sid:{})",self.getId(),sid);
             SendWorker sw = new SendWorker(sock, sid);
             RecvWorker rw = new RecvWorker(sock, din, sid, sw);
             sw.setRecv(rw);
@@ -532,10 +535,11 @@ public class QuorumCnxManager {
 
             sw.start();
             rw.start();
-
+            LOG.debug("10222803 end connection");
             return true;
 
         }
+        LOG.debug("10222803 end connection");
         return false;
     }
 
