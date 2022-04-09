@@ -6,7 +6,7 @@
     <img src="https://lamport.azurewebsites.net/tla/splash_small.png"" alt="https://lamport.azurewebsites.net/tla/"><br/>
   </a>
 </p>
-<p align="right">
+<p align="center">
   <a href="https://zookeeper.apache.org/">
     <img src="https://zookeeper.apache.org/images/zookeeper_small.gif"" alt="https://zookeeper.apache.org/"><br/>
   </a>
