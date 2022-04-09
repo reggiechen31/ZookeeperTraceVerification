@@ -1,2 +1,15 @@
-主要实现Zookeeper代码的插装，便于采集Trace运行态日志。
-插桩文件列表如下
+主要实现Zookeeper代码的插装，便于采集Trace运行态日志。<br/>
+插桩文件列表如下:<br/>
+LearnerHandler<br/>
+FinalRequestProcessor<br/>
+PrepRequestProcessor<br/>
+SyncRequestProcessor<br/>
+CommitProcessor<br/>
+FastLeaderElection<br/>
+FollowerRequestProcessor<br/>
+Leader<br/>
+LeaderRequestProcessor<br/>
+Learner<br/>
+QuorumCnxManager<br/>
+SendAckRequestProcessor<br/>
+QuorumMaj<br/>
