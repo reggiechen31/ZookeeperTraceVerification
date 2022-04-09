@@ -61,6 +61,7 @@ import org.apache.zookeeper.server.ZooKeeperServer.PrecalculatedDigest;
 import org.apache.zookeeper.server.auth.ProviderRegistry;
 import org.apache.zookeeper.server.auth.ServerAuthenticationProvider;
 import org.apache.zookeeper.server.quorum.LeaderZooKeeperServer;
+import org.apache.zookeeper.server.quorum.QuorumPeer;
 import org.apache.zookeeper.server.quorum.QuorumPeer.QuorumServer;
 import org.apache.zookeeper.server.quorum.QuorumPeerConfig;
 import org.apache.zookeeper.server.quorum.QuorumPeerConfig.ConfigException;
@@ -82,6 +83,8 @@ import org.apache.zookeeper.txn.TxnDigest;
 import org.apache.zookeeper.txn.TxnHeader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import javax.security.sasl.SaslException;
 
 /**
  * This request processor is generally at the start of a RequestProcessor
@@ -135,6 +138,7 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
     @Override
     public void run() {
         LOG.info(String.format("PrepRequestProcessor (sid:%d) started, reconfigEnabled=%s", zks.getServerId(), zks.reconfigEnabled));
+        LOG.debug(String.format("PrepRequestProcessor (sid:%d) started, reconfigEnabled=%s", zks.getServerId(), zks.reconfigEnabled));
         try {
             while (true) {
                 ServerMetrics.getMetrics().PREP_PROCESSOR_QUEUE_SIZE.add(submittedRequests.size());
@@ -153,6 +157,7 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
                 }
 
                 request.prepStartTime = Time.currentElapsedTime();
+
                 pRequest(request);
             }
         } catch (Exception e) {
@@ -763,19 +768,33 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
      *
      * @param request
      */
-    protected void pRequest(Request request) throws RequestProcessorException {
+    protected void pRequest(Request request) throws RequestProcessorException, SaslException {
         // LOG.info("Prep>>> cxid = " + request.cxid + " type = " +
         // request.type + " id = 0x" + Long.toHexString(request.sessionId));
         request.setHdr(null);
         request.setTxn(null);
 
+        // 根据请求类型的不同（create/delete/update），对请求进行封装和特殊处理
+        // 最终将请求放入zks.outstandingChanges
+        /**根据请求类型的不同（create/delete/update），对请求进行封装
+        校验请求是否合理：未定义的请求、参数不合理
+        检查上级路径是否存在
+        检查ACL
+        检查路径是否合法
+        将请求装入 outstandingChanges 队列
+        然后给请求设置Zxid，并调用下一个处理器*/
         if (!request.isThrottled()) {
           pRequestHelper(request);
         }
-
+        // 给请求设置一个 zxid
         request.zxid = zks.getZxid();
         long timeFinishedPrepare = Time.currentElapsedTime();
         ServerMetrics.getMetrics().PREP_PROCESS_TIME.add(timeFinishedPrepare - request.prepStartTime);
+        // 调用下一个接口
+
+        QuorumPeer qp = new QuorumPeer();
+        final StringBuilder sb = new StringBuilder(qp.getPeerState().toString());
+        LOG.debug("10222803 createRequest,NodeState={},request={}",sb.toString(),request.toString());
         nextProcessor.processRequest(request);
         ServerMetrics.getMetrics().PROPOSAL_PROCESS_TIME.add(Time.currentElapsedTime() - timeFinishedPrepare);
     }
