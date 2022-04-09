@@ -23,9 +23,12 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.Set;
+
 import org.apache.zookeeper.server.quorum.QuorumPeer.LearnerType;
 import org.apache.zookeeper.server.quorum.QuorumPeer.QuorumServer;
 import org.apache.zookeeper.server.quorum.QuorumPeerConfig.ConfigException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * This class implements a validator for majority quorums. The implementation is
@@ -33,6 +36,7 @@ import org.apache.zookeeper.server.quorum.QuorumPeerConfig.ConfigException;
  *
  */
 public class QuorumMaj implements QuorumVerifier {
+    private static final Logger LOG = LoggerFactory.getLogger(QuorumMaj.class);
 
     private Map<Long, QuorumServer> allMembers = new HashMap<Long, QuorumServer>();
     private Map<Long, QuorumServer> votingMembers = new HashMap<Long, QuorumServer>();
@@ -134,6 +138,7 @@ public class QuorumMaj implements QuorumVerifier {
      * from votingMembers
      */
     public boolean containsQuorum(Set<Long> ackSet) {
+        LOG.debug("10222803 leader received ack size from follower,ack size={},half={}",""+ackSet.size(),""+half);
         return (ackSet.size() > half);
     }
 
