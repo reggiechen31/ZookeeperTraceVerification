@@ -659,7 +659,7 @@ public class FastLeaderElection implements Election {
 
     private void leaveInstance(Vote v) {
         LOG.debug(
-            "About to leave FLE instance: leader={}, zxid=0x{}, my id={}, my state={}",
+            "10222803 leave FLE instance: leader={}, zxid=0x{}, my id={}, my state={}",
             v.getId(),
             Long.toHexString(v.getZxid()),
             self.getId(),
@@ -701,7 +701,7 @@ public class FastLeaderElection implements Election {
                 qv.toString().getBytes(UTF_8));
 
             LOG.debug(
-                "Sending Notification: {} (n.leader), 0x{} (n.zxid), 0x{} (n.round), {} (recipient),"
+                "105555 Sending Notification: {} (n.leader), 0x{} (n.zxid), 0x{} (n.round), {} (recipient),"
                     + " {} (myid), 0x{} (n.peerEpoch) ",
                 proposedLeader,
                 Long.toHexString(proposedZxid),
@@ -961,6 +961,18 @@ public class FastLeaderElection implements Election {
                  */
                 Notification n = recvqueue.poll(notTimeout, TimeUnit.MILLISECONDS);
 
+                LOG.debug(
+                        "10222803 received vote:" +
+                                " my state={},from={}, proposed leader={}, proposed zxid=0x{}," +
+                                " proposed election epoch=0x{},state={},peerRpoch={}",
+                        self.getPeerState(),
+                        n.sid,
+                        n.leader,
+                        Long.toHexString(n.zxid),
+                        Long.toHexString(n.electionEpoch),
+                        n.state,
+                        Long.toHexString(n.peerEpoch));
+
                 /*
                  * Sends more notifications if haven't received enough.
                  * Otherwise processes new notification.
@@ -1015,16 +1027,22 @@ public class FastLeaderElection implements Election {
                         }
 
                         LOG.debug(
-                            "Adding vote: from={}, proposed leader={}, proposed zxid=0x{}, proposed election epoch=0x{}",
-                            n.sid,
+                            "Adding vote: myState={}, from={}, n.state={},proposed leader={}, n.electionEpoch=0x{}, n.peerEpoch=0x{},proposed n.zxid=0x{},message format version=0x{}",
+                            self.getPeerState(),
+                                n.sid,
+                            n.state,
                             n.leader,
+                                Long.toHexString(n.electionEpoch),
+                                Long.toHexString(n.peerEpoch),
                             Long.toHexString(n.zxid),
-                            Long.toHexString(n.electionEpoch));
+                                Long.toHexString(n.version));
 
-                        // don't care about the version if it's in LOOKING state
+
+
                         recvset.put(n.sid, new Vote(n.leader, n.zxid, n.electionEpoch, n.peerEpoch));
 
                         voteSet = getVoteTracker(recvset, new Vote(proposedLeader, proposedZxid, logicalclock.get(), proposedEpoch));
+
 
                         if (voteSet.hasAllQuorums()) {
 
@@ -1043,6 +1061,9 @@ public class FastLeaderElection implements Election {
                             if (n == null) {
                                 setPeerState(proposedLeader, voteSet);
                                 Vote endVote = new Vote(proposedLeader, proposedZxid, logicalclock.get(), proposedEpoch);
+                                LOG.debug( "10222803 end vote: {}",
+                                        endVote.toString()
+                                );
                                 leaveInstance(endVote);
                                 return endVote;
                             }
@@ -1063,11 +1084,13 @@ public class FastLeaderElection implements Election {
                             if (voteSet.hasAllQuorums() && checkLeader(recvset, n.leader, n.electionEpoch)) {
                                 setPeerState(n.leader, voteSet);
                                 Vote endVote = new Vote(n.leader, n.zxid, n.electionEpoch, n.peerEpoch);
+                                LOG.debug( "10222803 end vote: {}",
+                                        endVote.toString()
+                                );
                                 leaveInstance(endVote);
                                 return endVote;
                             }
                         }
-
                         /*
                          * Before joining an established ensemble, verify that
                          * a majority are following the same leader.
@@ -1078,12 +1101,16 @@ public class FastLeaderElection implements Election {
                         outofelection.put(n.sid, new Vote(n.version, n.leader, n.zxid, n.electionEpoch, n.peerEpoch, n.state));
                         voteSet = getVoteTracker(outofelection, new Vote(n.version, n.leader, n.zxid, n.electionEpoch, n.peerEpoch, n.state));
 
+
                         if (voteSet.hasAllQuorums() && checkLeader(outofelection, n.leader, n.electionEpoch)) {
                             synchronized (this) {
                                 logicalclock.set(n.electionEpoch);
                                 setPeerState(n.leader, voteSet);
                             }
                             Vote endVote = new Vote(n.leader, n.zxid, n.electionEpoch, n.peerEpoch);
+                            LOG.debug( "10222803 end vote: {}",
+                                    endVote.toString()
+                            );
                             leaveInstance(endVote);
                             return endVote;
                         }
