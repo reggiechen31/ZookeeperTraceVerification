@@ -6,6 +6,11 @@
     <img src="https://lamport.azurewebsites.net/tla/splash_small.png"" alt="https://lamport.azurewebsites.net/tla/"><br/>
   </a>
 </p>
+<p align="right">
+  <a href="https://zookeeper.apache.org/">
+    <img src="https://zookeeper.apache.org/images/zookeeper_small.gif"" alt="https://zookeeper.apache.org/"><br/>
+  </a>
+</p>
 
                                                                                                            
 本仓库为使用Trace运行态模型实现对Zookeeper集群中数据一致性、状态一致性以及其选举阶段、数据同步阶段、广播阶段
