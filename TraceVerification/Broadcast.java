@@ -17,7 +17,7 @@ public class Broadcast {
 		try {
 			List<RecordValue> rcdSeq = new ArrayList<>();
 			String line = br.readLine();
-			while (line != null) {
+			while (line != null && line.length() > 0) {
 				String[] lnarr = line.split(",");
 				if (Integer.parseInt(lnarr[1].split(":")[1]) == 0) {
 					flag = true;
