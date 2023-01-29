@@ -63,6 +63,3 @@ SyncDataZxidConsistency == leaderSyncDataZxid = followerSyncDataZxid
 
 
 =============================================================================
-\* Modification History
-\* Last modified Wed Feb 23 18:44:35 CST 2022 by 10222803
-\* Created Mon Feb 21 13:54:48 CST 2022 by 10222803
